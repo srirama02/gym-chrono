@@ -110,7 +110,7 @@ class cobra_corridor(ChronoBaseEnv):
         self.y_obs = None
         self.num_obs = 0  # Obstacles set to zero by default
 
-        self._initpos = chrono.ChVectorD(
+        self._initpos = chrono.ChVector3d(
             0.0, 0.0, 0.0)  # Rover initial position
         # Frequncy in which we apply control
         self._control_frequency = 10
@@ -161,7 +161,7 @@ class cobra_corridor(ChronoBaseEnv):
         # Set up system with collision
         # -----------------------------
         self.system = chrono.ChSystemNSC()
-        self.system.Set_G_acc(chrono.ChVectorD(0, 0, -9.81))
+        self.system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
         self.system.SetCollisionSystemType(
             chrono.ChCollisionSystem.Type_BULLET)
         chrono.ChCollisionModel.SetDefaultSuggestedEnvelope(0.0025)
@@ -170,11 +170,11 @@ class cobra_corridor(ChronoBaseEnv):
         # -----------------------------
         # Set up Terrain
         # -----------------------------
-        ground_mat = chrono.ChMaterialSurfaceNSC()
+        ground_mat = chrono.ChContactMaterialNSC()
         self.ground = chrono.ChBodyEasyBox(
             self._terrain_length, self._terrain_width, self._terrain_height, 1000, True, True, ground_mat)
-        self.ground.SetPos(chrono.ChVectorD(0, 0, -self._terrain_height / 2.0))
-        self.ground.SetBodyFixed(True)
+        self.ground.SetPos(chrono.ChVector3d(0, 0, -self._terrain_height / 2.0))
+        self.ground.SetFixed(True)
         self.ground.GetVisualShape(0).SetTexture(
             chrono.GetChronoDataFile('textures/concrete.jpg'), 200, 200)
         self.system.Add(self.ground)
@@ -264,11 +264,11 @@ class cobra_corridor(ChronoBaseEnv):
                 self.vis.SetWindowTitle('Cobro RL playground')
                 self.vis.Initialize()
                 self.vis.AddSkyBox()
-                self.vis.AddCamera(chrono.ChVectorD(
-                    0, 11, 10), chrono.ChVectorD(0, 0, 1))
+                self.vis.AddCamera(chrono.ChVector3d(
+                    0, 11, 10), chrono.ChVector3d(0, 0, 1))
                 self.vis.AddTypicalLights()
-                self.vis.AddLightWithShadow(chrono.ChVectorD(
-                    1.5, -2.5, 5.5), chrono.ChVectorD(0, 0, 0.5), 3, 4, 10, 40, 512)
+                self.vis.AddLightWithShadow(chrono.ChVector3d(
+                    1.5, -2.5, 5.5), chrono.ChVector3d(0, 0, 0.5), 3, 4, 10, 40, 512)
                 self._render_setup = True
 
             self.vis.BeginScene()
@@ -363,7 +363,7 @@ class cobra_corridor(ChronoBaseEnv):
     def initialize_robot_pos(self, seed=1):
         """Initialize the pose of the robot
         """
-        self._initpos = chrono.ChVectorD(0, -0.2, 0.08144073)
+        self._initpos = chrono.ChVector3d(0, -0.2, 0.08144073)
 
         # For now no randomness
         self.rover.Initialize(chrono.ChFrameD(
@@ -411,9 +411,9 @@ class cobra_corridor(ChronoBaseEnv):
         goal_body = chrono.ChBodyEasySphere(
             0.2, 1000, True, False, goal_contact_material)
 
-        goal_body.SetPos(chrono.ChVectorD(
+        goal_body.SetPos(chrono.ChVector3d(
             goal_pos[0], goal_pos[1], 0.2))
-        goal_body.SetBodyFixed(True)
+        goal_body.SetFixed(True)
         goal_body.GetVisualShape(0).SetMaterial(0, goal_mat)
 
         self.system.Add(goal_body)
