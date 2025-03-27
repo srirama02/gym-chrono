@@ -24,13 +24,13 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
                     nn.Conv2d(64, 64, kernel_size=3, stride=1),
                     nn.ReLU(),
                     nn.Flatten(),
-                    nn.Linear(768, features_dim),
+                    nn.Linear(272384, features_dim),
                     nn.ReLU()
                 )
             else:
                 extractors[key] = nn.Sequential(
                     # Assuming the additional features are a flat vector
-                    nn.Linear(5, 10),
+                    nn.Linear(4, 10),
                     nn.ReLU()
                 )
         self.extractors = nn.ModuleDict(extractors)

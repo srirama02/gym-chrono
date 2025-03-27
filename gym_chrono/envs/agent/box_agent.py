@@ -9,7 +9,7 @@
 # http://projectchrono.org/license-chrono.txt.
 #
 # ========================================================================================================
-# Authors: Huzaifa Unjhawala (refactored from original code by Simone Benatti, Aaron Young, Asher Elmquist)
+# Authors: Sriram Ashokkumar
 # ========================================================================================================
 import gymnasium as gym
 import numpy as np
@@ -23,6 +23,7 @@ from gym_chrono.envs.ChronoBase import ChronoBaseEnv
 import pychrono.vehicle as veh
 import pychrono as chrono
 from typing import Any
+import torch
 
 try:
     from pychrono import irrlicht as chronoirr
@@ -78,14 +79,14 @@ class box_agent(ChronoBaseEnv):
         self.observation_space = gym.spaces.Dict({
             "image": gym.spaces.Box(low=0, high=255, shape=(
                 3, self.image_height, self.image_width), dtype=np.uint8),
-            "data": gym.spaces.Box(low=-100, high=100, shape=(5,), dtype=np.float32)})
+            "data": gym.spaces.Box(low=-100, high=100, shape=(4,), dtype=np.float32)})
 
         # Action space is the steering, throttle and braking where
         # Steering is between -1 and 1
         # Throttle is between -1 and 1, negative is braking
         # This is done to aide training - part of recommended rl tips to have symmetric action space
-        self.action_space = gym.spaces.Box(
-            low=np.array([-1.0, -1.0]), high=np.array([1.0, 1.0]), shape=(2,), dtype=np.float32)
+        self.action_space = gym.spaces.Discrete(5)
+
         # -------------------------------
         # Simulation specific class variables
         # -------------------------------
@@ -186,26 +187,35 @@ class box_agent(ChronoBaseEnv):
         terrain_delta = 0.05
         self.m_isRigid = True
 
-        mmesh = chrono.ChTriangleMeshConnected()
-        mmesh.LoadWavefrontMesh(
-            project_root + '/envs/data/environment/new_flat_3/new_flat_3.obj', False, True)
-        # scale to a different size
-        # mmesh.Transform(chrono.ChVector3d(0, 0, 0), chrono.ChMatrix33d(2))
+        # mmesh = chrono.ChTriangleMeshConnected()
+        # mmesh.LoadWavefrontMesh(
+        #     project_root + '/envs/environment/flat/new_flat_3.obj', False, True)
+        # # scale to a different size
+        # # mmesh.Transform(chrono.ChVector3d(0, 0, 0), chrono.ChMatrix33d(2))
 
-        trimesh_shape = chrono.ChVisualShapeTriangleMesh()
-        trimesh_shape.SetMesh(mmesh)
-        trimesh_shape.SetName("ENV MESH")
-        trimesh_shape.SetMutable(False)
+        # trimesh_shape = chrono.ChVisualShapeTriangleMesh()
+        # trimesh_shape.SetMesh(mmesh)
+        # trimesh_shape.SetName("ENV MESH")
+        # trimesh_shape.SetMutable(False)
 
-        mesh_body = chrono.ChBody()
-        mesh_body.SetPos(chrono.ChVector3d(0, 0, 0))
-        mesh_body.SetRot(chrono.Q_ROTATE_Y_TO_Z)
-        mesh_body.AddVisualShape(trimesh_shape)
-        mesh_body.SetFixed(True)
-        self.m_system.Add(mesh_body)
+        # mesh_body = chrono.ChBody()
+        # mesh_body.SetPos(chrono.ChVector3d(0, 0, 0))
+        # mesh_body.SetRot(chrono.Q_ROTATE_Y_TO_Z)
+        # mesh_body.AddVisualShape(trimesh_shape)
+        # mesh_body.SetFixed(True)
+        # self.m_system.Add(mesh_body)
+
+        ground_mat = chrono.ChContactMaterialSMC()
+        ground_mat.SetFriction(0.9)
+        ground_mat.SetYoungModulus(1e7)
+        ground = chrono.ChBodyEasyBox(20, 20, 0.1, 1000, True, True, ground_mat)
+        ground.SetPos(chrono.ChVector3d(0, 0, 0))
+        ground.SetFixed(True)
+        ground.EnableCollision(True)
+        ground.GetVisualShape(0).SetTexture(chrono.GetChronoDataFile("textures/concrete.jpg"))
+        self.m_system.Add(ground)
 
 
-        print("added environment")
         # -------------------------------
         # Reset the vehicle
         # -------------------------------
@@ -214,15 +224,14 @@ class box_agent(ChronoBaseEnv):
         self.virtual_robot = chrono.ChBodyEasyBox(
             0.25, 0.25, 0.5, 100, True, True, patch_mat)
         self.virtual_robot.SetPos(chrono.ChVector3d(-1.25, -1.25, 0.25))
+        self.m_system.Add(self.virtual_robot)
         robot_theta = self.initialize_agent_pos(seed)
 
-        print("added robot")
 
         # -------------------------------
         # Set the goal point
         # -------------------------------
         self.set_goal(seed)
-        print("set goal")
 
         # -------------------------------
         # Reset the obstacles
@@ -238,21 +247,12 @@ class box_agent(ChronoBaseEnv):
         self.m_sens_manager.scene.AddPointLight(chrono.ChVector3f(
             100, 100, 100), chrono.ChColor(1, 1, 1), 5000.0)
 
-        print("light added")
-
         # Add all the sensors -> For now orientation is ground truth
         # self.add_sensors(camera=True, gps=True, imu=False)
         
 
         offset_pose = chrono.ChFramed(chrono.ChVector3d(0.3, 0, 0.25), chrono.QUNIT)
-        print("line 248")
-        print(self.virtual_robot)
-        print(self.update_rate)
-        print(offset_pose)
-        print(self.image_width)
-        print(self.image_height)
-        print(self.fov)
-    
+
         self.m_camera = sens.ChCameraSensor(
             self.virtual_robot,  # body camera is attached to
             self.update_rate,  # update rate in Hz
@@ -262,13 +262,18 @@ class box_agent(ChronoBaseEnv):
             self.fov,
             6
         )
+        self.m_camera.SetName("Camera Sensor")
+        self.m_camera.PushFilter(sens.ChFilterVisualize(
+            self.image_width, self.image_height, "rgb camera"))
+        self.m_camera.PushFilter(sens.ChFilterRGBA8Access())
+        
+        self.m_sens_manager.AddSensor(self.m_camera)
 
-        print("sensors added")
         # -------------------------------
         # Get the initial observation
         # -------------------------------
         self.m_observation = self.get_observation()
-        self.m_old_distance = self.m_vector_to_goal.Length()
+        self.m_old_distance = self.m_vector_to_goal
         self.m_old_action = np.zeros((2,))
         self.m_contact_force = 0
         self.m_debug_reward = 0
@@ -287,11 +292,11 @@ class box_agent(ChronoBaseEnv):
         
         # Move robot forward in the direction it is facing
         if (action == 1): # move forward
-            self.virtual_robot.SetPos(self.virtual_robot.GetPos() + chrono.ChVectorD(0, 0, 0.1))
+            self.virtual_robot.SetPos(self.virtual_robot.GetPos() + chrono.ChVector3d(0, 0, 0.1))
         elif (action == 2): # turn left
-            self.virtual_robot.SetRot(self.virtual_robot.GetRot() * chrono.Q_from_AngZ(0.1))
+            self.virtual_robot.SetRot(self.virtual_robot.GetRot() * chrono.QuatFromAngleZ(0.1))
         elif (action == 3): # turn right
-            self.virtual_robot.SetRot(self.virtual_robot.GetRot() * chrono.Q_from_AngZ(-0.1))
+            self.virtual_robot.SetRot(self.virtual_robot.GetRot() * chrono.QuatFromAngleZ(-0.1))
         elif (action == 4): # reached goal
             pass
 
@@ -323,36 +328,41 @@ class box_agent(ChronoBaseEnv):
         if mode == 'human':
             self.render_mode = 'human'
 
-            if self.m_render_setup == False:
-                self.vis = chronoirr.ChVisualSystemIrrlicht()
-                self.vis.AttachSystem(self.m_system)
-                self.vis.SetCameraVertical(chrono.CameraVerticalDir_Z)
-                self.vis.SetWindowSize(1280, 720)
-                self.vis.SetWindowTitle('Box Agent')
-                self.vis.Initialize()
-                self.vis.AddSkyBox()
-                self.vis.AddCamera(chrono.ChVector3d(
-                    0, 0, 80), chrono.ChVector3d(0, 0, 1))
-                self.vis.AddTypicalLights()
-                self.vis.AddLightWithShadow(chrono.ChVector3d(
-                    1.5, -2.5, 5.5), chrono.ChVector3d(0, 0, 0.5), 3, 4, 10, 40, 512)
-                self.m_render_setup = True
+            # if self.m_render_setup == False:
+            #     self.vis = chronoirr.ChVisualSystemIrrlicht()
+            #     self.vis.AttachSystem(self.m_system)
+            #     self.vis.SetCameraVertical(chrono.CameraVerticalDir_Z)
+            #     self.vis.SetWindowSize(1280, 720)
+            #     self.vis.SetWindowTitle('Box Agent')
+            #     self.vis.Initialize()
+            #     self.vis.AddSkyBox()
+            #     self.vis.AddCamera(chrono.ChVector3d(
+            #         0, 0, 80), chrono.ChVector3d(0, 0, 1))
+            #     self.vis.AddTypicalLights()
+            #     self.vis.AddLightWithShadow(chrono.ChVector3d(
+            #         1.5, -2.5, 5.5), chrono.ChVector3d(0, 0, 0.5), 3, 4, 10, 40, 512)
+            #     self.m_render_setup = True
 
-            self.vis.BeginScene()
-            self.vis.Render()
-            self.vis.EndScene()
+            # self.vis.BeginScene()
+            # self.vis.Render()
+            # self.vis.EndScene()
         elif mode == 'follow':
             self.render_mode = 'follow'
             if self.m_render_setup == False:
-                self.vis = veh.ChWheeledVehicleVisualSystemIrrlicht()
-                self.vis.SetWindowTitle('Box Agent')
-                self.vis.SetWindowSize(1280, 1024)
-                trackPoint = chrono.ChVector3d(0.0, 0.0, 1.75)
-                self.vis.SetChaseCamera(trackPoint, 6.0, 0.5)
+                self.vis = chronoirr.ChVisualSystemIrrlicht(self.m_system)
+                self.vis.SetCameraVertical(chrono.CameraVerticalDir_Z)
+                self.vis.AddLightWithShadow(chrono.ChVector3d(2, 2, 2),  # point
+                                            chrono.ChVector3d(0, 0, 0),  # aimpoint
+                                            5,                       # radius (power)
+                                            1, 11,                     # near, far
+                                            55)                       # angle of FOV
+
+                # vis.EnableShadows()
+                self.vis.EnableAbsCoordsysDrawing(True)
                 self.vis.Initialize()
-                self.vis.AddLightDirectional()
                 self.vis.AddSkyBox()
-                self.vis.AttachVehicle(self.m_vehicle.GetVehicle())
+                self.vis.AddCamera(chrono.ChVector3d(-7/3, 0, 4.5/3),
+                                chrono.ChVector3d(0, 0, 0))
                 self.m_render_setup = True
 
             self.vis.BeginScene()
@@ -394,10 +404,11 @@ class box_agent(ChronoBaseEnv):
         robot_yaw = torch.tensor(yaw, dtype=torch.float32)
 
         # Goal position (assuming self.m_goal is a numpy array [goal_x, goal_y])
-        goal_x, goal_y = self.m_goal
+        goal_x, goal_y = self.m_goal.x, self.m_goal.y
 
         # Vector to goal in global coordinates
         vector_to_goal_global = np.array([goal_x - robot_x.item(), goal_y - robot_y.item()])
+        self.m_vector_to_goal = np.linalg.norm(vector_to_goal_global)
 
         # Rotate the vector to goal into the robot's local frame
         # Since robot_yaw is the yaw angle, we can use a 2D rotation matrix
@@ -412,16 +423,19 @@ class box_agent(ChronoBaseEnv):
         # Target heading to goal (angle from the robot's position to the goal)
         target_heading_to_goal = np.arctan2(vector_to_goal_global[1], vector_to_goal_global[0])
 
-        obs_dict = {
-            "rgb": camera_data,
-            # "depth": depth_data,
-            "gps": torch.stack((robot_x, robot_y)),
-            "compass": robot_yaw,
-            "vector_to_goal_local": torch.tensor(vector_to_goal_local, dtype=torch.float32),
-            "vehicle_heading": torch.tensor(vehicle_heading, dtype=torch.float32),
-            "target_heading_to_goal": torch.tensor(target_heading_to_goal, dtype=torch.float32),
-        }
-
+        # obs_dict = {
+        #     "rgb": camera_data,
+        #     # "depth": depth_data,
+        #     "gps": torch.stack((robot_x, robot_y)),
+        #     "compass": robot_yaw,
+        #     "vector_to_goal_local": torch.tensor(vector_to_goal_local, dtype=torch.float32),
+        #     "vehicle_heading": torch.tensor(vehicle_heading, dtype=torch.float32),
+        #     "target_heading_to_goal": torch.tensor(target_heading_to_goal, dtype=torch.float32),
+        # }
+        observation_array = np.array(
+            [vector_to_goal_local[0], vector_to_goal_local[1], vehicle_heading, target_heading_to_goal])
+        camera_data = np.transpose(camera_data, (2, 0, 1))
+        obs_dict = {"image": camera_data, "data": observation_array}
         return obs_dict
 
     def get_reward(self):
@@ -430,7 +444,7 @@ class box_agent(ChronoBaseEnv):
         """
         # Compute the progress made
         progress_scale = 20.  # coefficient for scaling progress reward
-        distance = self.m_vector_to_goal_noNoise.Length()
+        distance = self.m_vector_to_goal
         # The progress made with the last action
         progress = self.m_old_distance - distance
 
@@ -450,7 +464,7 @@ class box_agent(ChronoBaseEnv):
         """
         # If we are within a certain distance of the goal -> Terminate and give big reward
         # if np.linalg.norm(self.observation[:3] - self.goal) < 0.4:
-        if np.linalg.norm(self.m_vector_to_goal_noNoise.Length()) < 10:
+        if np.linalg.norm(self.m_vector_to_goal) < 10:
             print('--------------------------------------------------------------')
             print('Goal Reached')
             print('Initial position: ', self.m_initLoc)
@@ -467,7 +481,7 @@ class box_agent(ChronoBaseEnv):
             print('Time out')
             print('Initial position: ', self.m_initLoc)
             # dist = np.linalg.norm(self.observation[:3] - self.goal)
-            dist = self.m_vector_to_goal_noNoise.Length()
+            dist = self.m_vector_to_goal
             print('Final position of Gator: ',
                   self.m_chassis_body.GetPos())
             print('Goal position: ', self.m_goal)
@@ -486,15 +500,16 @@ class box_agent(ChronoBaseEnv):
         """
         Check if we have crashed or fallen off terrain
         """
-        collision = self.m_assets.CheckContact(
-            self.m_chassis_body, proper_collision=self.m_proper_collision)
-        if collision:
-            self.m_reward -= 600
-            print('--------------------------------------------------------------')
-            print(f'Crashed')
-            print('--------------------------------------------------------------')
-            self.m_debug_reward += self.m_reward
-            self.m_truncated = True
+        # collision = self.m_assets.CheckContact(
+        #     self.m_chassis_body, proper_collision=self.m_proper_collision)
+        # if collision:
+        #     self.m_reward -= 600
+        #     print('--------------------------------------------------------------')
+        #     print(f'Crashed')
+        #     print('--------------------------------------------------------------')
+        #     self.m_debug_reward += self.m_reward
+        #     self.m_truncated = True
+        pass
 
     def initialize_agent_pos(self, seed):
         """
@@ -508,9 +523,9 @@ class box_agent(ChronoBaseEnv):
         # #     np.cos(theta), self.m_terrain_width * 0.5 * np.sin(theta)
         # # z = 0.25
         # # ang = np.pi + theta
-        # # self.m_initLoc = chrono.ChVector3d(x, y, z)
+        self.m_initLoc = chrono.ChVector3d(-1.25, -1.25, 0.25)
         # # self.m_initRot = chrono.QuatFromAngleZ(ang)
-        self.virtual_robot.SetPos(chrono.ChVector3d(-1.25, -1.25, 0.25))
+        self.virtual_robot.SetPos(self.m_initLoc)
         return theta
 
     def set_goal(self, seed):
@@ -531,20 +546,20 @@ class box_agent(ChronoBaseEnv):
             gx, gy, 1.0)
 
         # Modify the goal point to be minimum 15 m away from gator
-        # i = 0
-        # while (self.m_goal - self.m_initLoc).Length() < 15:
-        #     gx = random.random() * self.m_terrain_length - self.m_terrain_length / 2
-        #     gy = random.random() * self.m_terrain_width - self.m_terrain_width / 2
-        #     self.m_goal = chrono.ChVector3d(
-        #         gx, gy, self.m_max_terrain_height + 1)
-        #     if i > 100:
-        #         print('Failed setting goal randomly, using default')
-        #         gx = self.m_terrain_length * 0.625 * \
-        #             np.cos(gator_theta + np.pi + delta_theta)
-        #         gy = self.m_terrain_width * 0.625 * \
-        #             np.sin(gator_theta + np.pi + delta_theta)
-        #         break
-        #     i += 1
+        i = 0
+        while (self.m_goal - self.m_initLoc).Length() < 15:
+            gx = random.random() * self.m_terrain_length - self.m_terrain_length / 2
+            gy = random.random() * self.m_terrain_width - self.m_terrain_width / 2
+            self.m_goal = chrono.ChVector3d(
+                gx, gy, self.m_max_terrain_height + 1)
+            if i > 100:
+                print('Failed setting goal randomly, using default')
+                gx = self.m_terrain_length * 0.625 * \
+                    np.cos(theta + np.pi + delta_theta)
+                gy = self.m_terrain_width * 0.625 * \
+                    np.sin(theta + np.pi + delta_theta)
+                break
+            i += 1
 
         # Set the goal visualization
         goal_contact_material = chrono.ChContactMaterialNSC()
@@ -617,12 +632,9 @@ class box_agent(ChronoBaseEnv):
         # -------------------------------
         # Add camera sensor
         # -------------------------------
-        print("line 601")
         if camera:
             self.m_have_camera = True
             offset_pose = chrono.ChFramed(chrono.ChVector3d(0.3, 0, 0.25), chrono.QUNIT)
-            print("line 608")
-            # print(self.virtual_robot)
             self.m_camera = sens.ChCameraSensor(
                 self.virtual_robot,  # body camera is attached to
                 self.update_rate,  # update rate in Hz
@@ -632,7 +644,6 @@ class box_agent(ChronoBaseEnv):
                 self.fov,
                 6
             )
-            print("line 615")
             self.m_camera.SetName("Camera Sensor")
             self.m_camera.PushFilter(sens.ChFilterRGBA8Access())
             if (self.m_additional_render_mode == 'agent_pov'):
@@ -678,6 +689,14 @@ class box_agent(ChronoBaseEnv):
         #     self.m_imu.SetName("IMU Sensor")
         #     self.m_imu.PushFilter(sens.ChFilterMagnetAccess())
         #     self.m_sens_manager.AddSensor(self.m_imu)
+
+    def quaternion_to_yaw(self, quaternion):
+        # Unpack quaternion
+        w, x, y, z = quaternion
+
+        # Calculate yaw (angle with respect to the x-axis)
+        yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y**2 + z**2))
+        return yaw
 
     # def set_nice_vehicle_mesh(self):
     #     self.m_play_mode = True

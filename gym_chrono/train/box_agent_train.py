@@ -9,7 +9,7 @@
 # http://projectchrono.org/license-chrono.txt.
 #
 # =======================================================================================
-# Authors: Huzaifa Unjhawala
+# Authors: Sriram Ashokkumar
 # =======================================================================================
 #
 # This file contains a script to train a PPO Cobra agent to navigate to a goal point
@@ -104,39 +104,38 @@ if __name__ == '__main__':
     # set up logger
     new_logger = configure(log_path, ["stdout", "csv", "tensorboard"])
 
-    print("line 108")
     # Vectorized environment
     env = make_vec_env(env_id=make_env(0), n_envs=num_cpu, vec_env_cls=DummyVecEnv)
-    print("here")
-    # policy_kwargs = dict(
-    #     features_extractor_class=CustomCombinedExtractor,
-    #     features_extractor_kwargs={'features_dim': 10},
-    #     activation_fn=th.nn.ReLU,
-    #     net_arch=dict(activation_fn=th.nn.ReLU, pi=[40, 20, 10], vf=[40, 20, 10]))
+    policy_kwargs = dict(
+        features_extractor_class=CustomCombinedExtractor,
+        features_extractor_kwargs={'features_dim': 10},
+        activation_fn=th.nn.ReLU,
+        net_arch=dict(activation_fn=th.nn.ReLU, pi=[40, 20, 10], vf=[40, 20, 10]))
 
-    # model = PPO('MultiInputPolicy', env, learning_rate=5e-4, n_steps=n_steps,
-    #             batch_size=batch_size, policy_kwargs=policy_kwargs, verbose=1, n_epochs=8,  tensorboard_log=log_path)
+    model = PPO('MultiInputPolicy', env, learning_rate=5e-4, n_steps=n_steps,
+                batch_size=batch_size, policy_kwargs=policy_kwargs, verbose=1, n_epochs=8,  tensorboard_log=log_path)
 
-    # print(model.policy)
-    # model.set_logger(new_logger)
-    # reward_store = []
-    # std_reward_store = []
-    # num_of_saves = 100  # Get total 100 saves
-    # training_steps_per_save = total_timesteps // num_of_saves
-    # checkpoint_dir = 'box_ppo_checkpoints'
-    # os.makedirs(checkpoint_dir, exist_ok=True)
+    print(model.policy)
+    model.set_logger(new_logger)
+    reward_store = []
+    std_reward_store = []
+    num_of_saves = 100  # Get total 100 saves
+    training_steps_per_save = total_timesteps // num_of_saves
+    checkpoint_dir = 'box_ppo_checkpoints'
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
 
-    # # In case user wants to load from a certain checkpoint
-    # # model = PPO.load(os.path.join(
-    # #     checkpoint_dir, f"ppo_checkpoint49"), env)
-    # # Replace the max range to num_of_saves ideally but the memory of my env keeps ballooning up
-    # for i in range(0, num_of_saves):
-    #     model.learn(training_steps_per_save, callback=TensorboardCallback())
-    #     mean_reward, std_reward = evaluate_policy(
-    #         model, env_single, n_eval_episodes=10)
-    #     print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
-    #     reward_store.append(mean_reward)
-    #     std_reward_store.append(std_reward)
-    #     model.save(os.path.join(checkpoint_dir, f"ppo_checkpoint{i}"))
-    #     model = PPO.load(os.path.join(
-    #         checkpoint_dir, f"ppo_checkpoint{i}"), env)
+    # In case user wants to load from a certain checkpoint
+    # model = PPO.load(os.path.join(
+    #     checkpoint_dir, f"ppo_checkpoint49"), env)
+    # Replace the max range to num_of_saves ideally but the memory of my env keeps ballooning up
+    for i in range(0, num_of_saves):
+        model.learn(training_steps_per_save, callback=TensorboardCallback())
+        mean_reward, std_reward = evaluate_policy(
+            model, env_single, n_eval_episodes=10)
+        print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
+        reward_store.append(mean_reward)
+        std_reward_store.append(std_reward)
+        model.save(os.path.join(checkpoint_dir, f"ppo_checkpoint{i}"))
+        model = PPO.load(os.path.join(
+            checkpoint_dir, f"ppo_checkpoint{i}"), env)
