@@ -1,5 +1,6 @@
 import gymnasium as gym
 from gym_chrono.envs.agent.box_agent import box_agent
+import time
 
 render = True
 additional_render = True
@@ -19,15 +20,17 @@ if __name__ == '__main__':
     print(env.observation_space)
     print(env.action_space)
     print(env.action_space.sample())
-
+    time.sleep(2)
     # Hardcoded best agent: always go left!
     n_steps = 1000000
     for step in range(n_steps):
         print(f"Step {step + 1}")
         if (step < 1):
             obs, reward, terminated, truncated, info = env.step(1)
-        # elif (step > 100):
-        #     obs, reward, terminated, truncated, info = env.step(1)
+        # elif (step > 5 and step < 10):
+        #     obs, reward, terminated, truncated, info = env.step(2)
+        elif (step > 100000):
+            obs, reward, terminated, truncated, info = env.step(1)
         print("Terminated=", terminated, "Truncated=", truncated)
         done = terminated or truncated
         if render:
@@ -35,3 +38,5 @@ if __name__ == '__main__':
         if done:
             print("reward=", reward)
             break
+        # time.sleep(0.5)
+

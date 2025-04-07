@@ -91,14 +91,14 @@ def make_env(rank: int, seed: int = 0) -> Callable:
 
 if __name__ == '__main__':
     env_single = box_agent()
-    num_cpu = 1
+    num_cpu = 4
     # Set to make an update after the end of 4 episodes (20 s each)- In total we will have 400 * 6 data points
     n_steps = 20 * 5 * 10
     # Set mini batch is the experiences so that 1/5th  batch is consumed to make an update
     batch_size = n_steps // 5
 
     # Set the number of timesteps such that we get 200 updates
-    total_timesteps = 200 * n_steps * num_cpu
+    total_timesteps = 400 * n_steps * num_cpu
 
     log_path = "box_logs/"
     # set up logger
