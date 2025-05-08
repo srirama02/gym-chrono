@@ -13,7 +13,7 @@ else:
 # Update this directory/path to point to your saved box_agent PPO checkpoints.
 checkpoint_dir = '../train/box_ppo_checkpoints'
 # Load the model checkpoint (e.g., "ppo_checkpoint0")
-loaded_model = PPO.load(os.path.join(checkpoint_dir, "ppo_checkpoint2"), env)
+loaded_model = PPO.load(os.path.join(checkpoint_dir, "ppo_checkpoint99"), env)
 
 sim_time = 20
 timeStep = 0.1
@@ -23,7 +23,7 @@ totalSteps = int(sim_time / timeStep)
 # if hasattr(env, "set_nice_vehicle_mesh"):
 #     env.set_nice_vehicle_mesh()
 
-obs, _ = env.reset(seed=0)
+obs, _ = env.reset(seed=1)
 if render:
     env.render('follow')
 

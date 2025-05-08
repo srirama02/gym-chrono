@@ -21,7 +21,7 @@ class CustomCombinedExtractor(BaseFeaturesExtractor):
                     nn.Flatten(),
                     # This linear layer expects the flattened conv output.
                     # Adjust the hardcoded value (272384) if your input size changes.
-                    nn.Linear(272384, image_features_dim),
+                    nn.Linear(3136, image_features_dim),
                     nn.ReLU()
                 )
                 total_concat_size += image_features_dim

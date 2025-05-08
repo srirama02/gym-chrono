@@ -36,6 +36,8 @@ import torch as th
 from gym_chrono.envs.agent.box_agent import box_agent
 from gym_chrono.train.boxActorCritic import CustomCombinedExtractor
 
+import argparse
+
 
 
 class TensorboardCallback(BaseCallback):
@@ -127,15 +129,33 @@ if __name__ == '__main__':
 
     # In case user wants to load from a certain checkpoint
     # model = PPO.load(os.path.join(
-    #     checkpoint_dir, f"ppo_checkpoint49"), env)
+    #     checkpoint_dir, f"ppo_checkpoint2"), env)
     # Replace the max range to num_of_saves ideally but the memory of my env keeps ballooning up
-    for i in range(0, num_of_saves):
+
+    # Parser for command-line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--resume', type=int, default=0, help='Checkpoint index to resume from')
+    args = parser.parse_args()
+
+    resume_index = args.resume
+
+    if resume_index > 0:
+        checkpoint_path = os.path.join('box_ppo_checkpoints', f'ppo_checkpoint{resume_index}.zip')
+        if os.path.exists(checkpoint_path):
+            model = PPO.load(checkpoint_path, env)
+            print(f"Loaded checkpoint from {checkpoint_path}")
+        else:
+            print(f"Checkpoint {checkpoint_path} not found. Starting fresh.")
+            resume_index = 0
+
+    # Training loop
+    for i in range(resume_index, num_of_saves):
         model.learn(training_steps_per_save, callback=TensorboardCallback())
-        mean_reward, std_reward = evaluate_policy(
-            model, env_single, n_eval_episodes=10)
+        mean_reward, std_reward = evaluate_policy(model, env_single, n_eval_episodes=10)
         print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
         reward_store.append(mean_reward)
         std_reward_store.append(std_reward)
-        model.save(os.path.join(checkpoint_dir, f"ppo_checkpoint{i}"))
-        model = PPO.load(os.path.join(
-            checkpoint_dir, f"ppo_checkpoint{i}"), env)
+        save_path = os.path.join(checkpoint_dir, f"ppo_checkpoint{i}")
+        model.save(save_path)
+        print(f"Saved checkpoint {save_path}")
+        model = PPO.load(save_path, env)

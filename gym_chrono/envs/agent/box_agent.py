@@ -31,6 +31,8 @@ import pychrono as chrono
 from typing import Any
 import torch
 
+from PIL import Image
+
 # Import ChronoIrrlicht and Chrono Sensor once
 try:
     from pychrono import irrlicht as chronoirr
@@ -58,8 +60,8 @@ class box_agent(ChronoBaseEnv):
         SetChronoDataDirectories()
 
         # Simulation parameters
-        self.image_width = 640
-        self.image_height = 480
+        self.image_width = 84 #320 #640
+        self.image_height = 84 #240 #480
         self.update_rate = 30
         self.fov = 1.408
 
@@ -105,6 +107,9 @@ class box_agent(ChronoBaseEnv):
         self.m_play_mode = False
         self.m_additional_render_mode = additional_render_mode
 
+
+        self.counter = 0
+
     def reset(self, seed=None, options=None):
         """Reset the environment to its initial state."""
         # Initialize Chrono system
@@ -140,21 +145,39 @@ class box_agent(ChronoBaseEnv):
         # Initialize sensors
         self.m_sens_manager = sens.ChSensorManager(self.system)
         self.m_sens_manager.scene.AddPointLight(chrono.ChVector3f(100, 100, 100), chrono.ChColor(1, 1, 1), 5000.0)
-        offset_pose = chrono.ChFramed(chrono.ChVector3d(0.3, 0, 0.25), chrono.QUNIT)
-        self.cam = sens.ChCameraSensor(self.virtual_robot, 100, offset_pose, self.image_width, self.image_height, self.fov, 6)
+        offset_pose = chrono.ChFramed(chrono.ChVector3d(0.3, 0, 0.3), chrono.QUNIT)
+        self.cam = sens.ChCameraSensor(
+            self.virtual_robot, 
+            100,   #  # update rate
+            offset_pose, 
+            self.image_width, 
+            self.image_height, 
+            self.fov, 
+            6)
         self.cam.SetName("Camera Sensor")
-        self.cam.PushFilter(sens.ChFilterVisualize(self.image_width, self.image_height, "agent pov"))
+        # self.cam.PushFilter(sens.ChFilterVisualize(self.image_width, self.image_height, "agent pov"))
         self.cam.PushFilter(sens.ChFilterRGBA8Access())
         self.m_sens_manager.AddSensor(self.cam)
 
         self.lidar = sens.ChLidarSensor(
-            self.virtual_robot, 100, offset_pose, self.image_width, self.image_height, self.fov,
-            chrono.CH_PI/6, -chrono.CH_PI/6, 3.66, sens.LidarBeamShape_RECTANGULAR,
-            1, 0, 0, sens.LidarReturnMode_STRONGEST_RETURN)
+            self.virtual_robot, 
+            100, 
+            offset_pose, 
+            self.image_width, 
+            self.image_height, 
+            self.fov,
+            chrono.CH_PI/6, 
+            -chrono.CH_PI/6, 
+            3.66, 
+            sens.LidarBeamShape_RECTANGULAR,
+            1, 
+            0, 
+            0, 
+            sens.LidarReturnMode_STRONGEST_RETURN)
         self.lidar.SetName("Lidar Sensor")
         self.lidar.SetLag(0)
         self.lidar.SetCollectionWindow(1/20)
-        self.lidar.PushFilter(sens.ChFilterVisualize(self.image_width, self.image_height, "depth camera"))
+        # self.lidar.PushFilter(sens.ChFilterVisualize(self.image_width, self.image_height, "depth camera"))
         self.lidar.PushFilter(sens.ChFilterDIAccess())
         self.m_sens_manager.AddSensor(self.lidar)
 
@@ -175,6 +198,7 @@ class box_agent(ChronoBaseEnv):
         ])
         self.prev_yaw = current_yaw
         self.cumulative_rotation = 0.0
+        self.turning_base_pos = None
 
         return self.observation, {}
 
@@ -203,13 +227,17 @@ class box_agent(ChronoBaseEnv):
         delta_yaw = abs(current_yaw - self.prev_yaw)
         if delta_yaw > np.pi:
             delta_yaw = 2 * np.pi - delta_yaw  # wrap difference to [0, π]
-        
-        if action in [2, 3]:
+
+        if action in [2, 3]:  # turning actions
+            # If this is the start of a turning sequence, record the current position
+            if self.turning_base_pos is None:
+                self.turning_base_pos = self.virtual_robot.GetPos()
             self.cumulative_rotation += delta_yaw
         else:
-            # If the action is not turning, reset the accumulated rotation
+            # Reset turning tracking when not turning
             self.cumulative_rotation = 0.0
-        
+            self.turning_base_pos = None
+
         self.prev_yaw = current_yaw
 
         self.observation = self.get_observation()
@@ -288,25 +316,34 @@ class box_agent(ChronoBaseEnv):
 
         # Transpose camera data to (channels, height, width)
         camera_data = np.transpose(camera_data, (2, 0, 1))
+        # self.save_combined_image({"image": camera_data, "depth": depth_data, "data": observation_array})
+
         return {"image": camera_data, "depth": depth_data, "data": observation_array}
 
     def get_reward(self):
-        """Compute reward based on progress towards the goal."""
         progress_scale = 40
         distance = self.m_vector_to_goal
         progress = self.m_old_distance - distance
         reward = progress_scale * progress
-        # if np.abs(progress) < 0.01:
-        #     reward -= 2
+        
+        # Penalize if no forward progress when not turning
         if np.abs(progress) < 0.01 and self.m_action not in [2, 3]:
             reward -= 10
-
-        # Penalize if excessive spinning is detected
+        
+        # Existing cumulative rotation penalty
         if self.cumulative_rotation > 4 * np.pi:
-            reward -= 100  # adjust penalty value as needed
-            # Optionally, reset cumulative rotation after penalty
+            reward -= 100  # adjust penalty as needed
             self.cumulative_rotation = 0.0
-
+        
+        # Additional penalty: if turning and displacement is very low
+        if self.m_action in [2, 3] and self.turning_base_pos is not None:
+            current_pos = self.virtual_robot.GetPos()
+            dx = current_pos.x - self.turning_base_pos.x
+            dy = current_pos.y - self.turning_base_pos.y
+            net_disp = np.sqrt(dx**2 + dy**2)
+            if net_disp < 0.05:  # threshold in meters (e.g. 5 cm)
+                reward -= 50  # additional penalty; adjust as needed
+        
         self.m_old_distance = distance
         return reward
 
@@ -387,6 +424,8 @@ class box_agent(ChronoBaseEnv):
         theta = random.random() * 2 * np.pi
         gx = robot_pos.x + r * np.cos(theta)
         gy = robot_pos.y + r * np.sin(theta)
+        # gx = 5
+        # gy = 0
         self.m_goal = chrono.ChVector3d(gx, gy, 0.5)
         while (self.m_goal - robot_pos).Length() < 2:
             r = np.random.uniform(2, 20)
@@ -399,11 +438,11 @@ class box_agent(ChronoBaseEnv):
         goal_mat = chrono.ChVisualMaterial()
         goal_mat.SetAmbientColor(chrono.ChColor(1.0, 0.0, 0.0))
         goal_mat.SetDiffuseColor(chrono.ChColor(1.0, 0.0, 0.0))
-        goal_body = chrono.ChBodyEasySphere(0.2, 1000, True, False, goal_contact_material)
-        goal_body.SetPos(self.m_goal)
-        goal_body.SetFixed(True)
-        goal_body.GetVisualShape(0).SetMaterial(0, goal_mat)
-        self.system.Add(goal_body)
+        # goal_body = chrono.ChBodyEasySphere(0.2, 1000, True, False, goal_contact_material)
+        # goal_body.SetPos(self.m_goal)
+        # goal_body.SetFixed(True)
+        # goal_body.GetVisualShape(0).SetMaterial(0, goal_mat)
+        # self.system.Add(goal_body)
 
     def add_obstacles(self, proper_collision=False):
         """Add obstacles randomly within 2 to 15 meters of the robot."""
@@ -432,6 +471,45 @@ class box_agent(ChronoBaseEnv):
 
     def add_sensors(self, camera=True, gps=True, imu=True):
         pass
+
+    def save_combined_image(self, observation):
+        """
+        Save a combined image of the RGB camera data and depth data side-by-side.
+        
+        Parameters:
+        observation (dict): Dictionary with keys "image" and "depth". 
+            - "image" is expected to be an array/tensor of shape (3, H, W).
+            - "depth" is expected to be an array/tensor of shape (H, W) with values in [0,1].
+        filename (str): Path (including name and extension) to save the image.
+        """
+        # Process RGB image:
+        rgb_img = observation["image"]
+        # If the image is a torch tensor, convert to numpy:
+        if isinstance(rgb_img, torch.Tensor):
+            rgb_img = rgb_img.cpu().numpy()
+        # The RGB image is in (C, H, W) format, so transpose it to (H, W, C)
+        rgb_img = np.transpose(rgb_img, (1, 2, 0))
+        # Ensure values are in uint8 (if they already are, this is a no-op)
+        rgb_img = rgb_img.astype(np.uint8)
+        
+        # Process depth image:
+        depth_img = observation["depth"]
+        # If the depth is a torch tensor, convert to numpy:
+        if isinstance(depth_img, torch.Tensor):
+            depth_img = depth_img.cpu().numpy()
+        # Assuming depth values are normalized between 0 and 1, scale to 0-255 and convert to uint8.
+        depth_img = np.clip(depth_img, 0, 1)  # ensure in range
+        depth_img = (depth_img * 255).astype(np.uint8)
+        # Optionally, convert the single-channel depth image to a 3-channel image for compatibility.
+        depth_img_color = np.stack([depth_img] * 3, axis=-1)
+        
+        # Combine the images side-by-side (horizontally)
+        combined_img = np.concatenate((rgb_img, depth_img_color), axis=1)
+        
+        # Save the combined image using PIL
+        im = Image.fromarray(combined_img)
+        im.save("obs_imgs/combined_output" + str(self.counter) + ".png")
+        self.counter += 1
 
     def quaternion_to_yaw(self, quaternion):
         """Convert quaternion to yaw angle."""
